@@ -6,6 +6,7 @@ use marian_core::{
 };
 use marian_model::ModelManifest;
 use marian_tokenizer::Tokenizer;
+use objc2::rc::autoreleasepool;
 
 use crate::MetalConfig;
 use crate::engine::MetalEngine;
@@ -45,10 +46,17 @@ impl MetalBackend {
         model_dir: impl AsRef<Path>,
         config: &MetalConfig,
     ) -> Result<Self, BackendError> {
-        let model_dir = std::fs::canonicalize(model_dir.as_ref()).map_err(|error| {
+        autoreleasepool(|_| Self::load_with_config_inner(model_dir.as_ref(), config))
+    }
+
+    fn load_with_config_inner(
+        model_dir: &Path,
+        config: &MetalConfig,
+    ) -> Result<Self, BackendError> {
+        let model_dir = std::fs::canonicalize(model_dir).map_err(|error| {
             BackendError::Model(format!(
                 "failed to resolve model directory {}: {error}",
-                model_dir.as_ref().display()
+                model_dir.display()
             ))
         })?;
         let manifest = ModelManifest::load(&model_dir)?;

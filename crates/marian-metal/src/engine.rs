@@ -1,6 +1,7 @@
 use std::{cell::Cell, path::Path};
 
 use marian_model::{Architecture, LexicalShortlist, MAXIMUM_POSITION, sinusoidal_positions};
+use objc2::rc::autoreleasepool;
 
 use crate::MetalConfig;
 use crate::metal_runtime::{Buffer, Commands, MetalRuntime, MetalStorage};
@@ -120,8 +121,15 @@ impl MetalEngine {
         // Once device execution begins, any error leaves request-scoped state
         // potentially incomplete. Fail closed; validation errors above remain
         // ordinary caller errors and do not poison readiness.
-        self.execute_request(tokens, offsets, max_output_tokens)
-            .inspect_err(|_| self.healthy.set(false))
+        // MPS creates autoreleased descriptor objects while encoding matrix
+        // operations. The backend runs on a long-lived Rust worker thread, so
+        // it has no event-loop boundary that would otherwise drain those
+        // objects. Give every inference its own pool to keep idle memory tied
+        // to the model and reusable workspace instead of cumulative traffic.
+        autoreleasepool(|_| {
+            self.execute_request(tokens, offsets, max_output_tokens)
+                .inspect_err(|_| self.healthy.set(false))
+        })
     }
 
     fn execute_request(
